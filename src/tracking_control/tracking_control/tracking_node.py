@@ -75,13 +75,13 @@ class TrackingNode(Node):
         # Create a transform listener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        
+        ###creating publisher for control velo to be sent out
         # Create publisher for the control command
         self.pub_control_cmd = self.create_publisher(Twist, '/track_cmd_vel', 10)
+        ###here is the subscription to get object & goal position###
         # Create a subscriber to the detected object pose
         self.sub_detected_goal_pose = self.create_subscription(PoseStamped, 'detected_color_object_pose', self.detected_obs_pose_callback, 10)
         self.sub_detected_obs_pose = self.create_subscription(PoseStamped, 'detected_color_goal_pose', self.detected_goal_pose_callback, 10)
-
         # Create timer, running at 100Hz
         self.timer = self.create_timer(0.01, self.timer_update)
     
@@ -148,7 +148,6 @@ class TrackingNode(Node):
             robot_world_R = q2R([transform.transform.rotation.w, transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z])
             obstacle_pose = robot_world_R@self.obs_pose+np.array([robot_world_x,robot_world_y,robot_world_z])
             goal_pose = robot_world_R@self.goal_pose+np.array([robot_world_x,robot_world_y,robot_world_z])
-    
         
         except TransformException as e:
             self.get_logger().error('Transform error: ' + str(e))
@@ -184,13 +183,79 @@ class TrackingNode(Node):
         # feel free to modify the code structure, add more parameters, more input variables for the function, etc.
         
         ########### Write your code here ###########
+
+        #okay I can edit it now
+        #so based off what we did in class x is foward velo and y is side to side
+        #outputs are in x, y distance from the robot camera to the object
+        #how do I get these positions/access them...gonna want to read through all this stuff but plan is to use the potential field method
+        #goal is to get the robot to stop 0.3m from the basket, idk if the robot is good enough to detect from that far
+        #so adding topic to rviz would be opening rviz and then pulling the topic like in lab 2
+        #all the work computing the distances between the objects is already done...
+        #do I need to call the function to get the info...
+    
+        #subscribed topics: 
+        #obstacle pose obs_pose
+        #goal pose goal_pose
         
-        # TODO: Update the control velocity command
+        #intilizing gains
+        att_gain = 1
+        rep_gain = 1
+
+        #object repulsive radius
+        obj_rep_rad = 0.5
+
         cmd_vel = Twist()
-        cmd_vel.linear.x = 0
-        cmd_vel.linear.y = 0
-        cmd_vel.angular.z = 0
+
+        if self.goal_pose is None or self.obs_pose is None:
+            return cmd_vel
+
+        try:
+        # Get poses in the robot's frame
+        obstacle_pose, goal_pose = self.get_current_poses()
+
+        # Compute vectors from robot to goal and obstacle
+        goal_vec = goal_pose[:2]
+        obs_vec = obstacle_pose[:2]
+
+        # Distance to goal and obstacle
+        dist_to_goal = np.linalg.norm(goal_vec)
+        dist_to_obs = np.linalg.norm(obs_vec)
+
+        # Attractive force (pull toward goal)
+        if dist_to_goal > 0.3:  # Stop 0.3m away from the goal
+            att_force = att_gain * goal_vec / dist_to_goal
+        else:
+            att_force = np.zeros(2)
+
+        # Repulsive force (push away from obstacle)
+        if dist_to_obs < obj_rep_rad and dist_to_obs > 0.001:
+            rep_force = rep_gain * (1.0 / dist_to_obs - 1.0 / obj_rep_rad) / (dist_to_obs ** 2) * (obs_vec / dist_to_obs)
+        else:
+            rep_force = np.zeros(2)
+
+        # Net force
+        total_force = att_force - rep_force
+
+        # Set linear velocities based on net force
+        cmd_vel.linear.x = np.clip(total_force[0], -0.5, 0.5)
+        cmd_vel.linear.y = np.clip(total_force[1], -0.5, 0.5)
+
+        # Optional: Angular correction to face goal
+        goal_angle = math.atan2(goal_vec[1], goal_vec[0])
+        cmd_vel.angular.z = np.clip(2.0 * goal_angle, -1.0, 1.0)
+
+        except Exception as e:
+            self.get_logger().warn(f"Controller error: {e}")
+
         return cmd_vel
+
+    
+        # TODO: Update the control velocity command
+        #cmd_vel = Twist()
+        #cmd_vel.linear.x = 0
+        #cmd_vel.linear.y = 0
+        #cmd_vel.angular.z = 0
+        #return cmd_vel
     
         ############################################
 
