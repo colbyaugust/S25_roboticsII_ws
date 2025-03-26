@@ -82,7 +82,7 @@ class TrackingNode(Node):
         # Create a subscriber to the detected object pose
         self.sub_detected_goal_pose = self.create_subscription(PoseStamped, 'detected_color_object_pose', self.detected_obs_pose_callback, 10)
         self.sub_detected_obs_pose = self.create_subscription(PoseStamped, 'detected_color_goal_pose', self.detected_goal_pose_callback, 10)
-        # Create timer, running at 100Hz
+        # Create timer, running at 100Hz, maybe make slower to start and slowly ramp up with preformance
         self.timer = self.create_timer(0.01, self.timer_update)
     
     def detected_obs_pose_callback(self, msg):
@@ -192,6 +192,9 @@ class TrackingNode(Node):
         #so adding topic to rviz would be opening rviz and then pulling the topic like in lab 2
         #all the work computing the distances between the objects is already done...
         #do I need to call the function to get the info...
+
+        #so the idea is the final position of the obstical once it leaves the image frame will
+        #be held and enventually decay into nothing
     
         #subscribed topics: 
         #obstacle pose obs_pose
@@ -210,14 +213,16 @@ class TrackingNode(Node):
             return cmd_vel
 
         try:
-        # Get poses in the robot's frame
+        # Get poses in the robot's frame using get current poses
         obstacle_pose, goal_pose = self.get_current_poses()
 
-        # Compute vectors from robot to goal and obstacle
+        # Compute vectors from robot to goal and obstacle 
+        #creating vectors from robot to goal and obstacle
         goal_vec = goal_pose[:2]
         obs_vec = obstacle_pose[:2]
 
         # Distance to goal and obstacle
+        # computing distance magnitude using np.linalg.norm (euclie
         dist_to_goal = np.linalg.norm(goal_vec)
         dist_to_obs = np.linalg.norm(obs_vec)
 
@@ -225,18 +230,21 @@ class TrackingNode(Node):
         if dist_to_goal > 0.3:  # Stop 0.3m away from the goal
             att_force = att_gain * goal_vec / dist_to_goal
         else:
+            #sets velo to zero if within the distance 
             att_force = np.zeros(2)
 
-        # Repulsive force (push away from obstacle)
+        # Repulsive force (push away from obstacle) ensuring the distance to obstical is positive (idk if nessisary) 
         if dist_to_obs < obj_rep_rad and dist_to_obs > 0.001:
             rep_force = rep_gain * (1.0 / dist_to_obs - 1.0 / obj_rep_rad) / (dist_to_obs ** 2) * (obs_vec / dist_to_obs)
         else:
+            #is outside the radius of repulsion is set to 0
             rep_force = np.zeros(2)
 
         # Net force
         total_force = att_force - rep_force
 
         # Set linear velocities based on net force
+        #np.clip(value, min, max)
         cmd_vel.linear.x = np.clip(total_force[0], -0.5, 0.5)
         cmd_vel.linear.y = np.clip(total_force[1], -0.5, 0.5)
 
