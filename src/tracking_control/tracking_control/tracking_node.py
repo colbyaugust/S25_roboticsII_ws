@@ -179,93 +179,61 @@ class TrackingNode(Node):
         #################################################
     
     def controller(self):
-        # Instructions: You can implement your own control algorithm here
-        # feel free to modify the code structure, add more parameters, more input variables for the function, etc.
-        
-        ########### Write your code here ###########
-
-        #okay I can edit it now
-        #so based off what we did in class x is foward velo and y is side to side
-        #outputs are in x, y distance from the robot camera to the object
-        #how do I get these positions/access them...gonna want to read through all this stuff but plan is to use the potential field method
-        #goal is to get the robot to stop 0.3m from the basket, idk if the robot is good enough to detect from that far
-        #so adding topic to rviz would be opening rviz and then pulling the topic like in lab 2
-        #all the work computing the distances between the objects is already done...
-        #do I need to call the function to get the info...
-
-        #so the idea is the final position of the obstical once it leaves the image frame will
-        #be held and enventually decay into nothing
+        # Potential field control algorithm using attractive and repulsive forces.
     
-        #subscribed topics: 
-        #obstacle pose obs_pose
-        #goal pose goal_pose
-        
-        #intilizing gains
+        # Initialize gains and parameters
         att_gain = 1
         rep_gain = 1
-
-        #object repulsive radius
-        obj_rep_rad = 0.5
+        obj_rep_rad = 0.5  # Object repulsive radius
+        angular_gain = 0.5  # Reduced angular gain for smoother rotation
 
         cmd_vel = Twist()
 
-        if self.goal_pose is None or self.obs_pose is None:
-            return cmd_vel
-
-        try:
-        # Get poses in the robot's frame using get current poses
+        # Update poses using get_current_poses()
         obstacle_pose, goal_pose = self.get_current_poses()
 
-        # Compute vectors from robot to goal and obstacle 
-        #creating vectors from robot to goal and obstacle
+        # Optionally assign default values if the poses are still None
+        if obstacle_pose is None:
+            obstacle_pose = np.zeros(3)  # Adjust dimensions as needed
+        if goal_pose is None:
+            goal_pose = np.zeros(3)
+
+        # Update the class attributes for future reference
+        self.obs_pose = obstacle_pose
+        self.goal_pose = goal_pose
+
+        # Compute vectors from robot to goal and obstacle (only x and y components)
         goal_vec = goal_pose[:2]
         obs_vec = obstacle_pose[:2]
 
-        # Distance to goal and obstacle
-        # computing distance magnitude using np.linalg.norm (euclie
+        # Calculate distances to goal and obstacle
         dist_to_goal = np.linalg.norm(goal_vec)
         dist_to_obs = np.linalg.norm(obs_vec)
 
-        # Attractive force (pull toward goal)
-        if dist_to_goal > 0.3:  # Stop 0.3m away from the goal
+        # Attractive force: pull toward goal (stop if within 0.3 m)
+        if dist_to_goal > 0.3:
             att_force = att_gain * goal_vec / dist_to_goal
         else:
-            #sets velo to zero if within the distance 
             att_force = np.zeros(2)
 
-        # Repulsive force (push away from obstacle) ensuring the distance to obstical is positive (idk if nessisary) 
+        # Repulsive force: push away from obstacle if within repulsion radius
         if dist_to_obs < obj_rep_rad and dist_to_obs > 0.001:
             rep_force = rep_gain * (1.0 / dist_to_obs - 1.0 / obj_rep_rad) / (dist_to_obs ** 2) * (obs_vec / dist_to_obs)
         else:
-            #is outside the radius of repulsion is set to 0
             rep_force = np.zeros(2)
 
-        # Net force
+        # Net force combining attractive and repulsive influences
         total_force = att_force - rep_force
 
-        # Set linear velocities based on net force
-        #np.clip(value, min, max)
+        # Set linear velocities based on the net force with velocity limits
         cmd_vel.linear.x = np.clip(total_force[0], -0.5, 0.5)
         cmd_vel.linear.y = np.clip(total_force[1], -0.5, 0.5)
 
-        # Optional: Angular correction to face goal
+        # Angular correction to face the goal using the reduced angular gain
         goal_angle = math.atan2(goal_vec[1], goal_vec[0])
-        cmd_vel.angular.z = np.clip(2.0 * goal_angle, -1.0, 1.0)
+        cmd_vel.angular.z = np.clip(angular_gain * goal_angle, -1.0, 1.0)
 
-        except Exception as e:
-            self.get_logger().warn(f"Controller error: {e}")
-
-        return cmd_vel
-
-    
-        # TODO: Update the control velocity command
-        #cmd_vel = Twist()
-        #cmd_vel.linear.x = 0
-        #cmd_vel.linear.y = 0
-        #cmd_vel.angular.z = 0
-        #return cmd_vel
-    
-        ############################################
+return cmd_vel
 
 def main(args=None):
     # Initialize the rclpy library
