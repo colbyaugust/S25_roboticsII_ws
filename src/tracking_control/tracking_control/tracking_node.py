@@ -190,31 +190,8 @@ class TrackingNode(Node):
         
         ########### Write your code here ###########
 
-        '''
-        obs_pose, goal_pose = self.get_current_poses()
-
-        goal_vec = goal_pose[:2]
-        obs_vec = obs_pose[:2]
-
-        dist_goal = np.linalg.norm(goal_vec) 
-        dist_obs = np.linalg.norm(obs_vec) 
-        cmd_vel = Twist()
-        
-        if dist_goal >= 0.5:
-            cmd_vel.linear.x = 0.2 * dist_goal ** 2.0
-        else:
-            cmd_vel.linear.x = 0.0
-
-        # TODO: Update the control velocity command
-        cmd_vel.linear.y = 0.0
-        cmd_vel.angular.z = 0.0
-
-        return cmd_vel
-        '''
-
         # TODO: Update the control velocity command
 
-        
         #initializing gains
         att_gain = 1.25
         rep_gain = 0.475
