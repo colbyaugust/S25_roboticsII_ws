@@ -83,7 +83,7 @@ class TrackingNode(Node):
         self.sub_detected_obs_pose = self.create_subscription(PoseStamped, 'detected_color_goal_pose', self.detected_goal_pose_callback, 10)
 
         # Create timer, running at 100Hz
-        self.timer = self.create_timer(0.01, self.timer_update)
+        self.timer = self.create_timer(0.045, self.timer_update)
     
     def detected_obs_pose_callback(self, msg):
         #self.get_logger().info('Received Detected Object Pose')
@@ -140,16 +140,21 @@ class TrackingNode(Node):
         odom_id = self.get_parameter('world_frame_id').get_parameter_value().string_value
         # Get the current robot pose
         try:
-            # from base_footprint to odom
+	  
             transform = self.tf_buffer.lookup_transform('base_footprint', odom_id, rclpy.time.Time())
             robot_world_x = transform.transform.translation.x
             robot_world_y = transform.transform.translation.y
             robot_world_z = transform.transform.translation.z
             robot_world_R = q2R([transform.transform.rotation.w, transform.transform.rotation.x, transform.transform.rotation.y, transform.transform.rotation.z])
-            obstacle_pose = robot_world_R@self.obs_pose+np.array([robot_world_x,robot_world_y,robot_world_z])
-            goal_pose = robot_world_R@self.goal_pose+np.array([robot_world_x,robot_world_y,robot_world_z])
-    
-        
+
+            #correction to avoid tracking termination
+            if self.obs_pose is not None and self.goal_pose is not None: 
+                obstacle_pose = robot_world_R@self.obs_pose+np.array([robot_world_x,robot_world_y,robot_world_z])
+                goal_pose = robot_world_R@self.goal_pose+np.array([robot_world_x,robot_world_y,robot_world_z])
+            else:
+                obstacle_pose = np.zeros(2)
+                goal_pose = np.zeros(2)
+
         except TransformException as e:
             self.get_logger().error('Transform error: ' + str(e))
             return
@@ -168,15 +173,15 @@ class TrackingNode(Node):
             cmd_vel.angular.z = 0.0
             self.pub_control_cmd.publish(cmd_vel)
             return
-        
+        else:
         # Get the current object pose in the robot base_footprint frame
-        current_obs_pose, current_goal_pose = self.get_current_poses()
+            #current_obs_pose, current_goal_pose = self.get_current_poses()
         
-        # TODO: get the control velocity command
-        cmd_vel = self.controller()
-        
-        # publish the control command
-        self.pub_control_cmd.publish(cmd_vel)
+            # TODO: get the control velocity command
+            cmd_vel = self.controller()
+
+            # publish the control command
+            self.pub_control_cmd.publish(cmd_vel)
         #################################################
     
     def controller(self):
@@ -184,13 +189,83 @@ class TrackingNode(Node):
         # feel free to modify the code structure, add more parameters, more input variables for the function, etc.
         
         ########### Write your code here ###########
-        
-        # TODO: Update the control velocity command
+
+        '''
+        obs_pose, goal_pose = self.get_current_poses()
+
+        goal_vec = goal_pose[:2]
+        obs_vec = obs_pose[:2]
+
+        dist_goal = np.linalg.norm(goal_vec) 
+        dist_obs = np.linalg.norm(obs_vec) 
         cmd_vel = Twist()
-        cmd_vel.linear.x = 0
-        cmd_vel.linear.y = 0
-        cmd_vel.angular.z = 0
+        
+        if dist_goal >= 0.5:
+            cmd_vel.linear.x = 0.2 * dist_goal ** 2.0
+        else:
+            cmd_vel.linear.x = 0.0
+
+        # TODO: Update the control velocity command
+        cmd_vel.linear.y = 0.0
+        cmd_vel.angular.z = 0.0
+
         return cmd_vel
+        '''
+
+        # TODO: Update the control velocity command
+
+        
+        #initializing gains
+        att_gain = 1.25
+        rep_gain = 0.475
+
+        #defining obstacle repuslive radius
+        obj_rep_rad = 0.5
+
+        cmd_vel = Twist()
+        cmd_vel.linear.x = 0.0
+        cmd_vel.linear.y = 0.0
+        cmd_vel.angular.z = 0.0
+
+        #getting current poses of the objects in the image frame
+        obstacle_pose, goal_pose = self.get_current_poses()
+
+        #computing distances from robot to objects
+        goal_vec = goal_pose[:2]
+        obs_vec = obstacle_pose[:2]
+        dist_to_goal = np.linalg.norm(goal_vec)
+        dist_to_obs = np.linalg.norm(obs_vec)
+
+        #computing attractive force
+        if dist_to_goal > 0.3: 
+            att_force = att_gain * goal_vec / dist_to_goal
+        else:
+            att_force = np.zeros(2)
+
+        #computing repulsive force
+        if dist_to_obs < obj_rep_rad and dist_to_obs > 0.001:
+            rep_force = rep_gain * (1.0 / dist_to_obs - 1.0 / obj_rep_rad) / (dist_to_obs ** 2) * (obs_vec / dist_to_obs)
+        else:
+            rep_force = np.zeros(2)
+
+        #computring net forces
+        total_force = att_force - rep_force
+
+        #updating linear velocities clipping to reduce max speed
+        cmd_vel.linear.x = np.clip(total_force[0], -0.15, 0.15)
+        cmd_vel.linear.y = np.clip(total_force[1], -0.05, 0.05)
+
+        #computing the desired angular heading for the linear velocities
+        net_angle = math.atan2(total_force[1], total_force[0])
+
+        #using the net force angle aligns orientation with the actual movement direction to updated robot rotation
+        ang_gain = 1.0
+        cmd_vel.angular.z = np.clip(ang_gain * net_angle, -0.075, 0.075)
+
+        #returning computed velocity
+        return cmd_vel
+
+ 
     
         ############################################
 
